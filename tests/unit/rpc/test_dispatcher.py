@@ -87,18 +87,22 @@ class RpcDispatcherTestCase(unittest.TestCase):
         self._test_dispatch('3.1', (None, None, self.ctxt, 1))
 
     def test_dispatch_higher_minor_version(self):
-        self.assertRaises(rpc_common.UnsupportedRpcVersion,
-                self._test_dispatch, '2.6', (None, None, None, None))
-        self.assertRaises(rpc_common.UnsupportedRpcVersion,
-                self._test_dispatch, '3.6', (None, None, None, None))
+        self.assertRaises(
+            rpc_common.UnsupportedRpcVersion,
+            self._test_dispatch, '2.6', (None, None, None, None))
+        self.assertRaises(
+            rpc_common.UnsupportedRpcVersion,
+            self._test_dispatch, '3.6', (None, None, None, None))
 
     def test_dispatch_lower_major_version(self):
-        self.assertRaises(rpc_common.UnsupportedRpcVersion,
-                self._test_dispatch, '1.0', (None, None, None, None))
+        self.assertRaises(
+            rpc_common.UnsupportedRpcVersion,
+            self._test_dispatch, '1.0', (None, None, None, None))
 
     def test_dispatch_higher_major_version(self):
-        self.assertRaises(rpc_common.UnsupportedRpcVersion,
-                self._test_dispatch, '4.0', (None, None, None, None))
+        self.assertRaises(
+            rpc_common.UnsupportedRpcVersion,
+            self._test_dispatch, '4.0', (None, None, None, None))
 
     def test_dispatch_no_version_uses_v1(self):
         v1 = self.API1()
@@ -108,3 +112,17 @@ class RpcDispatcherTestCase(unittest.TestCase):
 
         self.assertEqual(v1.test_method_ctxt, self.ctxt)
         self.assertEqual(v1.test_method_arg1, 1)
+
+    def test_missing_method_version_match(self):
+        v1 = self.API1()
+        disp = dispatcher.RpcDispatcher([v1])
+        self.assertRaises(AttributeError,
+                          disp.dispatch,
+                          self.ctxt, "1.0", "does_not_exist")
+
+    def test_missing_method_version_no_match(self):
+        v1 = self.API1()
+        disp = dispatcher.RpcDispatcher([v1])
+        self.assertRaises(rpc_common.UnsupportedRpcVersion,
+                          disp.dispatch,
+                          self.ctxt, "2.0", "does_not_exist")
