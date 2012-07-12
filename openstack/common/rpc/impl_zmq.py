@@ -14,8 +14,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import json
 import pprint
+import socket
 import string
 import sys
 import types
@@ -28,6 +28,7 @@ import greenlet
 from openstack.common import cfg
 from openstack.common.gettextutils import _
 from openstack.common import importutils
+from openstack.common import jsonutils
 from openstack.common.rpc import common as rpc_common
 
 
@@ -46,9 +47,12 @@ zmq_opts = [
                     'address.'),
 
     # The module.Class to use for matchmaking.
-    cfg.StrOpt('rpc_zmq_matchmaker',
-               default='openstack.common.rpc.matchmaker.MatchMakerLocalhost',
-               help='MatchMaker driver'),
+    cfg.StrOpt(
+        'rpc_zmq_matchmaker',
+        default=('openstack.common.rpc'
+                 'matchmaker.MatchMakerLocalhost'),
+        help='MatchMaker driver',
+        ),
 
     # The following port is unassigned by IANA as of 2012-05-21
     cfg.IntOpt('rpc_zmq_port', default=9501,
@@ -59,6 +63,9 @@ zmq_opts = [
 
     cfg.StrOpt('rpc_zmq_ipc_dir', default='/var/run/openstack',
                help='Directory for holding IPC sockets'),
+    cfg.StrOpt('rpc_zmq_host', default=socket.gethostname(),
+               help='Name of this node. Must be a valid hostname, FQDN, or '
+                    'IP address')
 ]
 
 
@@ -76,7 +83,7 @@ def _serialize(data):
     Error if a developer passes us bad data.
     """
     try:
-        return str(json.dumps(data, ensure_ascii=True))
+        return str(jsonutils.dumps(data, ensure_ascii=True))
     except TypeError:
         LOG.error(_("JSON serialization failed."))
         raise
@@ -87,7 +94,7 @@ def _deserialize(data):
     Deserialization wrapper
     """
     LOG.debug(_("Deserializing: %s"), data)
-    return json.loads(data)
+    return jsonutils.loads(data)
 
 
 class ZmqSocket(object):
@@ -119,11 +126,12 @@ class ZmqSocket(object):
         for f in do_sub:
             self.subscribe(f)
 
-        LOG.debug(_("Connecting to %{addr}s with %{type}s"
-                    "\n-> Subscribed to %{subscribe}s"
-                    "\n-> bind: %{bind}s"),
-                  {'addr': addr, 'type': self.socket_s(),
-                   'subscribe': subscribe, 'bind': bind})
+        str_data = {'addr': addr, 'type': self.socket_s(),
+                    'subscribe': subscribe, 'bind': bind}
+
+        LOG.debug(_("Connecting to %(addr)s with %(type)s"), str_data)
+        LOG.debug(_("-> Subscribed to %(subscribe)s"),  str_data)
+        LOG.debug(_("-> bind: %(bind)s"), str_data)
 
         try:
             if bind:
@@ -542,8 +550,7 @@ def _call(addr, context, msg_id, topic, msg, timeout=None):
     msg_id = str(uuid.uuid4().hex)
 
     # Replies always come into the reply service.
-    # We require that FLAGS.host is a FQDN, IP, or resolvable hostname.
-    reply_topic = "zmq_replies.%s" % FLAGS.host
+    reply_topic = "zmq_replies.%s" % FLAGS.rpc_zmq_host
 
     LOG.debug(_("Creating payload"))
     # Curry the original request into a reply method.
