@@ -982,12 +982,32 @@ class ReparseTestCase(BaseTestCase):
 
 class OverridesTestCase(BaseTestCase):
 
+    def test_default_none(self):
+        self.conf.register_opt(StrOpt('foo', default='foo'))
+        self.conf([])
+        self.assertEquals(self.conf.foo, 'foo')
+        self.conf.set_default('foo', None)
+        self.assertEquals(self.conf.foo, None)
+        self.conf.clear_default('foo')
+        self.assertEquals(self.conf.foo, 'foo')
+
+    def test_override_none(self):
+        self.conf.register_opt(StrOpt('foo', default='foo'))
+        self.conf([])
+        self.assertEquals(self.conf.foo, 'foo')
+        self.conf.set_override('foo', None)
+        self.assertEquals(self.conf.foo, None)
+        self.conf.clear_override('foo')
+        self.assertEquals(self.conf.foo, 'foo')
+
     def test_no_default_override(self):
         self.conf.register_opt(StrOpt('foo'))
         self.conf([])
         self.assertEquals(self.conf.foo, None)
         self.conf.set_default('foo', 'bar')
         self.assertEquals(self.conf.foo, 'bar')
+        self.conf.clear_default('foo')
+        self.assertEquals(self.conf.foo, None)
 
     def test_default_override(self):
         self.conf.register_opt(StrOpt('foo', default='foo'))
@@ -995,7 +1015,7 @@ class OverridesTestCase(BaseTestCase):
         self.assertEquals(self.conf.foo, 'foo')
         self.conf.set_default('foo', 'bar')
         self.assertEquals(self.conf.foo, 'bar')
-        self.conf.set_default('foo', None)
+        self.conf.clear_default('foo')
         self.assertEquals(self.conf.foo, 'foo')
 
     def test_override(self):
@@ -1003,6 +1023,8 @@ class OverridesTestCase(BaseTestCase):
         self.conf.set_override('foo', 'bar')
         self.conf([])
         self.assertEquals(self.conf.foo, 'bar')
+        self.conf.clear_override('foo')
+        self.assertEquals(self.conf.foo, None)
 
     def test_group_no_default_override(self):
         self.conf.register_group(OptGroup('blaa'))
@@ -1011,6 +1033,8 @@ class OverridesTestCase(BaseTestCase):
         self.assertEquals(self.conf.blaa.foo, None)
         self.conf.set_default('foo', 'bar', group='blaa')
         self.assertEquals(self.conf.blaa.foo, 'bar')
+        self.conf.clear_default('foo', group='blaa')
+        self.assertEquals(self.conf.blaa.foo, None)
 
     def test_group_default_override(self):
         self.conf.register_group(OptGroup('blaa'))
@@ -1019,15 +1043,18 @@ class OverridesTestCase(BaseTestCase):
         self.assertEquals(self.conf.blaa.foo, 'foo')
         self.conf.set_default('foo', 'bar', group='blaa')
         self.assertEquals(self.conf.blaa.foo, 'bar')
-        self.conf.set_default('foo', None, group='blaa')
+        self.conf.clear_default('foo', group='blaa')
         self.assertEquals(self.conf.blaa.foo, 'foo')
 
     def test_group_override(self):
         self.conf.register_group(OptGroup('blaa'))
         self.conf.register_opt(StrOpt('foo'), group='blaa')
+        self.assertEquals(self.conf.blaa.foo, None)
         self.conf.set_override('foo', 'bar', group='blaa')
         self.conf([])
         self.assertEquals(self.conf.blaa.foo, 'bar')
+        self.conf.clear_override('foo', group='blaa')
+        self.assertEquals(self.conf.blaa.foo, None)
 
 
 class ResetAndClearTestCase(BaseTestCase):
@@ -1109,6 +1136,32 @@ class UnregisterOptTestCase(BaseTestCase):
         self.conf.unregister_opt(opt, group='blaa')
 
         self.assertFalse(hasattr(self.conf.blaa, 'foo'))
+
+
+class ImportOptTestCase(BaseTestCase):
+
+    def test_import_opt(self):
+        self.assertFalse(hasattr(CONF, 'blaa'))
+        CONF.import_opt('blaa', 'tests.testmods.blaa_opt')
+        self.assertTrue(hasattr(CONF, 'blaa'))
+
+    def test_import_opt_in_group(self):
+        self.assertFalse(hasattr(CONF, 'bar'))
+        CONF.import_opt('foo', 'tests.testmods.bar_foo_opt', group='bar')
+        self.assertTrue(hasattr(CONF, 'bar'))
+        self.assertTrue(hasattr(CONF.bar, 'foo'))
+
+    def test_import_opt_import_errror(self):
+        self.assertRaises(ImportError, CONF.import_opt,
+                          'blaa', 'tests.testmods.blaablaa_opt')
+
+    def test_import_opt_no_such_opt(self):
+        self.assertRaises(NoSuchOptError, CONF.import_opt,
+                          'blaablaa', 'tests.testmods.blaa_opt')
+
+    def test_import_opt_no_such_group(self):
+        self.assertRaises(NoSuchGroupError, CONF.import_opt,
+                          'blaa', 'tests.testmods.blaa_opt', group='blaa')
 
 
 class RequiredOptsTestCase(BaseTestCase):
@@ -1454,3 +1507,43 @@ class ConfigParserTestCase(unittest.TestCase):
 
             parser = ConfigParser(tmpfile.name, {})
             self.assertRaises(ParseError, parser.parse)
+
+
+class TildeExpansionTestCase(BaseTestCase):
+
+    def test_config_file_tilde(self):
+        homedir = os.path.expanduser('~')
+        tmpfile = tempfile.mktemp(dir=homedir, prefix='cfg-', suffix='.conf')
+        tmpbase = os.path.basename(tmpfile)
+
+        try:
+            self.conf(['--config-file', os.path.join('~', tmpbase)])
+        except ConfigFilesNotFoundError, cfnfe:
+            print cfnfe
+            self.assertTrue(homedir in str(cfnfe))
+
+        self.stubs.Set(os.path, 'exists', lambda p: p == tmpfile)
+
+        self.assertEquals(self.conf.find_file(tmpbase), tmpfile)
+
+    def test_config_dir_tilde(self):
+        homedir = os.path.expanduser('~')
+        tmpdir = tempfile.mktemp(dir=homedir,
+                                 prefix='cfg-',
+                                 suffix='.d')
+        tmpfile = os.path.join(tmpdir, 'foo.conf')
+        tmpbase = os.path.basename(tmpfile)
+
+        self.stubs.Set(glob, 'glob', lambda p: [tmpfile])
+
+        try:
+            print ['--config-dir', os.path.join('~', os.path.basename(tmpdir))]
+            self.conf(['--config-dir',
+                       os.path.join('~', os.path.basename(tmpdir))])
+        except ConfigFilesNotFoundError, cfnfe:
+            print cfnfe
+            self.assertTrue(os.path.expanduser('~') in str(cfnfe))
+
+        self.stubs.Set(os.path, 'exists', lambda p: p == tmpfile)
+
+        self.assertEquals(self.conf.find_file(tmpbase), tmpfile)
